@@ -6,7 +6,6 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY netwatch.sh /app/netwatch.sh
-COPY db/init.sql /app/init.sql
 RUN chmod +x /app/netwatch.sh
 
 CMD ["/app/netwatch.sh"]

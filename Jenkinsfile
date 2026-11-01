@@ -23,7 +23,6 @@ pipeline {
                     set -eu
                     bash -n netwatch.sh
                     test -f Dockerfile
-                    test -f db/init.sql
                     test -f Version.txt
                     docker info > /dev/null
                 '''
@@ -36,7 +35,7 @@ pipeline {
                     env.DB_NAME = 'netwatch_v' + version.replace('.', '_')
                     env.IMAGE_TAG = "netwatch:${version}-b${env.BUILD_NUMBER}"
                     env.NETWATCH_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                    echo "Version ${env.NETWATCH_VERSION}, Datenbank ${env.DB_NAME}, Image ${env.IMAGE_TAG}"
+                    echo "Version ${env.NETWATCH_VERSION} | Datenbank ${env.DB_NAME} | Image ${env.IMAGE_TAG}"
                 }
             }
         }
@@ -63,14 +62,34 @@ pipeline {
                         docker run --rm \
                             --network netwatch-net \
                             -e DB_USER -e DB_PASSWORD -e DB_NAME \
-                            --entrypoint /bin/bash "$IMAGE_TAG" -ec '
+                            --entrypoint bash "$IMAGE_TAG" -ec '
+                                set -eu
                                 export MYSQL_PWD="$DB_PASSWORD"
                                 mariadb --protocol=TCP -h netwatch-db -u "$DB_USER" \
-                                  -e "CREATE DATABASE IF NOT EXISTS $DB_NAME;"
+                                    -e "CREATE DATABASE IF NOT EXISTS $DB_NAME;"
                                 mariadb --protocol=TCP -h netwatch-db -u "$DB_USER" \
-                                  "$DB_NAME" < /app/init.sql
+                                    --database="$DB_NAME" -e "
+                                        CREATE TABLE IF NOT EXISTS monitoring_results (
+                                            id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                                            name VARCHAR(255) NOT NULL,
+                                            ip_address VARCHAR(45) NOT NULL,
+                                            checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                            status VARCHAR(20) NOT NULL,
+                                            response_time_ms DECIMAL(10,2) NULL,
+                                            INDEX idx_ip_checked_at (ip_address, checked_at)
+                                        );
+                                        CREATE TABLE IF NOT EXISTS netwatch_release (
+                                            id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                                            version VARCHAR(32) NOT NULL,
+                                            build_number INT NOT NULL,
+                                            git_commit VARCHAR(64) NOT NULL,
+                                            image_tag VARCHAR(128) NOT NULL,
+                                            deployed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                            UNIQUE KEY uq_build_number (build_number)
+                                        );
+                                    "
                             '
-                        echo "Versionsdatenbank $DB_NAME ist bereit."
+                        echo "Versionsdatenbank $DB_NAME mit Tabellen vorbereitet."
                     '''
                 }
             }
@@ -139,7 +158,7 @@ pipeline {
                         sleep 2
                     done
                     test "$(docker inspect -f '{{.State.Running}}' netwatch)" = 'true'
-                    echo "NetWatch $NETWATCH_VERSION (Build #$BUILD_NUMBER) läuft mit Datenbank $DB_NAME."
+                    echo "NetWatch $NETWATCH_VERSION (Build #$BUILD_NUMBER) läuft mit DB $DB_NAME."
                 '''
             }
         }
