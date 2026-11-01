@@ -16,10 +16,6 @@ export MOCK_SQL_LOG
 cat > "$MOCK_DIR/ping" <<'MOCKPING'
 #!/usr/bin/env bash
 set -euo pipefail
-
-echo "ABSICHTLICHER TESTFEHLER: Jenkins muss stoppen!"
-exit 1
-
 ip=''
 for argument in "$@"; do ip="$argument"; done
 case "${MOCK_PING_MODE:-online}" in
