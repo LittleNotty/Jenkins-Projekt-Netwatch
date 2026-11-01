@@ -1,1 +1,6 @@
-/Fortnite
+.env
+.env.*
+*.cnf
+secrets/
+*.log
+.DS_Store
