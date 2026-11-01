@@ -75,7 +75,7 @@ monitor_cycle() {
   }
 
   local sql=$'START TRANSACTION;\n'
-  local target name ip ping_output status response value
+  local target name ip ping_output status response
 
   for target in "${TARGETS[@]}"; do
     IFS='|' read -r name ip <<< "$target"

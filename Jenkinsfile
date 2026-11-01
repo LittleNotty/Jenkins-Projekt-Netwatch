@@ -17,11 +17,12 @@ pipeline {
             }
         }
 
-        stage('Version und Code prüfen') {
+        stage('Build (Vorbereitung)') {
             steps {
                 sh '''
                     set -eu
-                    bash -n netwatch.sh
+                    test -f netwatch.sh
+                    test -f test.sh
                     test -f Dockerfile
                     test -f Version.txt
                     docker info > /dev/null
@@ -40,7 +41,20 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        // Alle automatisierten Syntax- und Funktionstests VOR dem Image-Build.
+        // Ein Exit-Code != 0 stoppt Jenkins: kein neues Image und kein Deployment.
+        stage('Tests (Syntax und Funktion)') {
+            steps {
+                sh '''
+                    set -eu
+                    bash -n netwatch.sh
+                    bash -n test.sh
+                    bash test.sh
+                '''
+            }
+        }
+
+        stage('Docker Image erstellen') {
             steps {
                 sh '''
                     set -eu

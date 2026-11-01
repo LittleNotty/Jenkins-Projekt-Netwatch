@@ -1,6 +1,12 @@
+# Zugangsdaten und lokale Konfiguration
 .env
 .env.*
-*.cnf
+*.env
 secrets/
+*.pem
+*.key
+
+# Lokale Test- und Laufzeitdateien
 *.log
+*.tmp
 .DS_Store
