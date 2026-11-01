@@ -25,7 +25,14 @@ pipeline {
                     test -f test.sh
                     test -f Dockerfile
                     test -f Version.txt
+                    test -f compose.yaml
                     docker info > /dev/null
+                    docker compose version
+                    docker compose -p netwatch -f compose.yaml config -q
+
+                    # Die Datenbank muss vor diesem Build unter Compose uebernommen sein.
+                    test "$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' netwatch-db)" = netwatch
+                    test "$(docker inspect -f '{{.State.Health.Status}}' netwatch-db)" = healthy
                 '''
                 script {
                     def version = readFile('Version.txt').trim()
@@ -35,14 +42,14 @@ pipeline {
                     env.NETWATCH_VERSION = version
                     env.DB_NAME = 'netwatch_v' + version.replace('.', '_')
                     env.IMAGE_TAG = "netwatch:${version}-b${env.BUILD_NUMBER}"
+                    env.NETWATCH_BUILD = env.BUILD_NUMBER
                     env.NETWATCH_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     echo "Version ${env.NETWATCH_VERSION} | Datenbank ${env.DB_NAME} | Image ${env.IMAGE_TAG}"
                 }
             }
         }
 
-        // Alle automatisierten Syntax- und Funktionstests VOR dem Image-Build.
-        // Ein Exit-Code != 0 stoppt Jenkins: kein neues Image und kein Deployment.
+        // Kein Image-Build und kein Deployment nach fehlgeschlagenen Tests.
         stage('Tests (Syntax und Funktion)') {
             steps {
                 sh '''
@@ -73,10 +80,12 @@ pipeline {
                     sh '''
                         set +x
                         set -eu
-                        docker run --rm \
-                            --network netwatch-net \
-                            -e DB_USER -e DB_PASSWORD -e DB_NAME \
-                            --entrypoint bash "$IMAGE_TAG" -ec '
+                        : "${DB_USER:?DB_USER fehlt}"
+                        : "${DB_PASSWORD:?DB_PASSWORD fehlt}"
+
+                        # Einmaliger Compose-Container fuer SQL-DDL, kein zweiter DB-Dienst.
+                        docker compose -p netwatch -f compose.yaml run --rm -T --no-deps \
+                            --entrypoint bash netwatch -ec '
                                 set -eu
                                 export MYSQL_PWD="$DB_PASSWORD"
                                 mariadb --protocol=TCP -h netwatch-db -u "$DB_USER" \
@@ -119,11 +128,11 @@ pipeline {
                     sh '''
                         set +x
                         set -eu
-                        docker run --rm \
-                            --network netwatch-net \
-                            -e DB_USER -e DB_PASSWORD -e DB_NAME \
-                            -e RUN_ONCE=1 \
-                            "$IMAGE_TAG"
+                        : "${DB_USER:?DB_USER fehlt}"
+                        : "${DB_PASSWORD:?DB_PASSWORD fehlt}"
+                        # Testet echte Ping-/MariaDB-Verbindung, beendet sich nach einem Lauf.
+                        docker compose -p netwatch -f compose.yaml run --rm -T --no-deps \
+                            -e RUN_ONCE=1 netwatch
                     '''
                 }
             }
@@ -139,20 +148,23 @@ pipeline {
                     sh '''
                         set +x
                         set -eu
+                        : "${DB_USER:?DB_USER fehlt}"
+                        : "${DB_PASSWORD:?DB_PASSWORD fehlt}"
+                        test "$(docker inspect -f '{{.State.Health.Status}}' netwatch-db)" = healthy
+
+                        # Verhindert das Ersetzen eines fremden/manuell gestarteten Containers.
                         if docker container inspect netwatch > /dev/null 2>&1; then
-                            docker rm -f netwatch
+                            owner="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' netwatch)"
+                            if [ "$owner" != netwatch ]; then
+                                echo 'FEHLER: Container netwatch wird nicht von Compose verwaltet.' >&2
+                                exit 1
+                            fi
                         fi
+
                         docker tag "$IMAGE_TAG" netwatch:latest
-                        docker run -d \
-                            --name netwatch \
-                            --restart=no \
-                            --network netwatch-net \
-                            -e DB_USER -e DB_PASSWORD -e DB_NAME \
-                            -e NETWATCH_VERSION -e NETWATCH_COMMIT \
-                            -e NETWATCH_BUILD="$BUILD_NUMBER" \
-                            -e CHECK_INTERVAL=60 \
-                            -e MAX_RUNTIME_SECONDS=3600 \
-                            "$IMAGE_TAG"
+                        # Nur die Anwendung ersetzen: DB-Container und Volume bleiben in Ruhe.
+                        docker compose -p netwatch -f compose.yaml up -d \
+                            --no-deps --force-recreate netwatch
                     '''
                 }
             }
@@ -171,8 +183,9 @@ pipeline {
                         fi
                         sleep 2
                     done
-                    test "$(docker inspect -f '{{.State.Running}}' netwatch)" = 'true'
-                    echo "NetWatch $NETWATCH_VERSION (Build #$BUILD_NUMBER) läuft mit DB $DB_NAME."
+                    test "$(docker inspect -f '{{.State.Running}}' netwatch)" = true
+                    test "$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' netwatch)" = netwatch
+                    echo "NetWatch $NETWATCH_VERSION (Build #$BUILD_NUMBER) läuft via Docker Compose mit DB $DB_NAME."
                 '''
             }
         }

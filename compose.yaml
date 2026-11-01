@@ -1,0 +1,55 @@
+# NetWatch – echte CI/CD-Umgebung mit Docker Compose.
+# WICHTIG: Die vorhandene DB wird mitsamt Volume EINMALIG kontrolliert uebernommen.
+# Diese Datei nicht blind mit 'up' auf dem alten Docker-Setup starten.
+# Start/Update von NetWatch anschliessend ueber das Jenkinsfile.
+services:
+  netwatch-db:
+    # Exakt das bisher verwendete MariaDB-Image der VM.
+    # Der Tag wird einmalig durch compose-migration.sh lokal angelegt.
+    image: mariadb:netwatch-existing
+    pull_policy: never
+    container_name: netwatch-db
+    restart: unless-stopped
+    # Die Datenbank ist bereits im externen Volume initialisiert.
+    # Daher sind hier KEINE neuen Root-/DB-Passwoerter erforderlich.
+    # Bei einem LEEREN Volume wuerde MariaDB absichtlich NICHT initialisieren.
+    volumes:
+      - netwatch-db-data:/var/lib/mysql
+    networks:
+      - netwatch-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 15s
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  netwatch:
+    image: ${IMAGE_TAG:-netwatch:latest}
+    container_name: netwatch
+    restart: "no"
+    depends_on:
+      netwatch-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: netwatch-db
+      DB_NAME: ${DB_NAME:-netwatch}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      NETWATCH_VERSION: ${NETWATCH_VERSION:-}
+      NETWATCH_BUILD: ${NETWATCH_BUILD:-}
+      NETWATCH_COMMIT: ${NETWATCH_COMMIT:-}
+      CHECK_INTERVAL: "60"
+      MAX_RUNTIME_SECONDS: "3600"
+    networks:
+      - netwatch-net
+
+volumes:
+  netwatch-db-data:
+    external: true
+    name: netwatch-db-data
+
+networks:
+  netwatch-net:
+    external: true
+    name: netwatch-net
