@@ -1,18 +1,15 @@
-# NetWatch – echte CI/CD-Umgebung mit Docker Compose.
-# WICHTIG: Die vorhandene DB wird mitsamt Volume EINMALIG kontrolliert uebernommen.
-# Diese Datei nicht blind mit 'up' auf dem alten Docker-Setup starten.
-# Start/Update von NetWatch anschliessend ueber das Jenkinsfile.
+# NetWatch-Deployment: Jenkins erzeugt DB_NAME aus Version.txt und übergibt
+# die DB-Zugangsdaten aus Jenkins Credentials beim Containerstart.
+# Die vorhandene MariaDB mit ihrem Volume bleibt unangetastet.
+# ACHTUNG: Nicht blind auf einer ungeprüften Docker-Umgebung ausführen.
 services:
   netwatch-db:
-    # Exakt das bisher verwendete MariaDB-Image der VM.
-    # Der Tag wird einmalig durch compose-migration.sh lokal angelegt.
+    # Bestehendes MariaDB-Image, über die einmalige Migration lokal markiert.
     image: mariadb:netwatch-existing
     pull_policy: never
     container_name: netwatch-db
     restart: unless-stopped
-    # Die Datenbank ist bereits im externen Volume initialisiert.
-    # Daher sind hier KEINE neuen Root-/DB-Passwoerter erforderlich.
-    # Bei einem LEEREN Volume wuerde MariaDB absichtlich NICHT initialisieren.
+    # Persistentes, bereits initialisiertes Volume: NICHT ersetzen oder löschen.
     volumes:
       - netwatch-db-data:/var/lib/mysql
     networks:
@@ -33,7 +30,10 @@ services:
         condition: service_healthy
     environment:
       DB_HOST: netwatch-db
-      DB_NAME: ${DB_NAME:-netwatch}
+      # Absichtlich kein DB-Default: ein fehlender Versionsname ist ein Fehler.
+      # Leer ist fuer die frühe Jenkins-Compose-Syntaxprüfung erlaubt;
+      # netwatch.sh beendet sich dann kontrolliert mit einer Fehlermeldung.
+      DB_NAME: ${DB_NAME:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
       NETWATCH_VERSION: ${NETWATCH_VERSION:-}
